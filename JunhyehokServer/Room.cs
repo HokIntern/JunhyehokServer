@@ -8,18 +8,15 @@ namespace JunhyehokServer
 {
     class Room
     {
-        private long roomId;
-        private string roomname;
+        private int roomId;
         private List<ClientHandle> clients;
 
-        public long RoomId { get { return roomId; } }
-        public string Roomname { get { return roomname; } }
+        public int RoomId { get { return roomId; } }
         public List<ClientHandle> Clients { get { return clients; } }
 
-        public Room(long roomId, string roomname)
+        public Room(int roomId)
         {
             this.roomId = roomId;
-            this.roomname = roomname;
             clients = new List<ClientHandle>();
         }
 

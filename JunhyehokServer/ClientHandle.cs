@@ -20,11 +20,13 @@ namespace JunhyehokServer
         int bytecount;
         int heartbeatMiss = 0;
 
+        private char[] cookieChar;
         private string cookie;
+        private byte[] cookieBites;
         private long userId;
         private State status;
         private bool isDummy;
-        private long roomId;
+        private int roomId;
         private int chatCount;
         ReceiveHandle recvHandler;
 
@@ -32,11 +34,13 @@ namespace JunhyehokServer
         string remotePort;
 
         public Socket So { get; }
-        public string Cookie { get; set; }
+        public char[] CookieChar { get { return cookieChar; } set { cookieChar = value; Cookie = cookieChar.ToString(); } }
+        public string Cookie { get { return cookie; } set { cookie = value; cookieBites = Encoding.UTF8.GetBytes(value); } }
+        public byte[] CookieBites { get; }
         public long UserId { get; set; }
         public State Status { get; set; }
         public bool IsDummy { get; set; }
-        public long RoomId { get; set; }
+        public int RoomId { get; set; }
         public int ChatCount { get; set; }
 
         public enum State
@@ -50,6 +54,7 @@ namespace JunhyehokServer
             status = State.Online;
             remoteHost = ((IPEndPoint)so.RemoteEndPoint).Address.ToString();
             remotePort = ((IPEndPoint)so.RemoteEndPoint).Port.ToString();
+            Console.WriteLine("[Client] Connection established with {0}:{1}\n", remoteHost, remotePort);
         }
 
         public async void StartSequence()
@@ -76,6 +81,9 @@ namespace JunhyehokServer
                         break;
                     }
                 }
+
+                if (respPacket.header.code == Code.INITIALIZE_FAIL)
+                    break; //close socket connection
 
                 //=======================Check Connection=======================
                 if (!isConnected())
@@ -110,7 +118,7 @@ namespace JunhyehokServer
             return recvRequest;
         }
         
-        private void CloseConnection()
+        public void CloseConnection()
         {
             //=================Signout/Close Connection/Exit Thread==================
             Signout();

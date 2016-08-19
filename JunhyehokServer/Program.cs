@@ -51,6 +51,7 @@ namespace JunhyehokServer
             try { backendInfo = System.IO.File.ReadAllText("backend.conf"); }
             catch (Exception e) { Console.WriteLine("\n" + e.Message); Environment.Exit(0); }
             Socket backendSocket = Connect(backendInfo);
+            //Socket backendSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 
             ClientHandle backend = new ClientHandle(backendSocket);
             backend.StartSequence();
