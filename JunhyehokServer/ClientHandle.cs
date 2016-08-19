@@ -31,12 +31,13 @@ namespace JunhyehokServer
         string remoteHost;
         string remotePort;
 
-        public Socket So { get { return so; } }
-        public long UserId { get { return userId; } set { userId = value; } }
-        public State Status { get { return status; } set { status = value; } }
-        public bool IsDummy { get { return isDummy; } set { isDummy = value; } }
-        public long RoomId { get { return roomId; } set { roomId = value; } }
-        public int ChatCount { get { return chatCount; } set { chatCount = value; } }
+        public Socket So { get; }
+        public string Cookie { get; set; }
+        public long UserId { get; set; }
+        public State Status { get; set; }
+        public bool IsDummy { get; set; }
+        public long RoomId { get; set; }
+        public int ChatCount { get; set; }
 
         public enum State
         {
@@ -58,10 +59,7 @@ namespace JunhyehokServer
                 Packet recvRequest = await SocketRecvAsync();
 
                 if (ushort.MaxValue == recvRequest.header.code)
-                {
-                    CloseConnection();
-                    return;
-                }
+                    break;
 
                 //=================Process Request/Get Response=================
                 ReceiveHandle recvHandle = new ReceiveHandle(this, recvRequest);
@@ -75,7 +73,7 @@ namespace JunhyehokServer
                     if (!sendSuccess)
                     {
                         Console.WriteLine("Send failed.");
-                        CloseConnection();
+                        break;
                     }
                 }
 
@@ -83,9 +81,10 @@ namespace JunhyehokServer
                 if (!isConnected())
                 {
                     Console.WriteLine("Connection lost with {0}:{1}", remoteHost, remotePort);
-                    CloseConnection();
+                    break;
                 }
             }
+            CloseConnection();
         }
         
         private async Task<Packet> SocketRecvAsync()

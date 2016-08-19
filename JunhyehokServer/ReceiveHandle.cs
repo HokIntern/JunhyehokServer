@@ -5,85 +5,66 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading.Tasks;
+using Junhaehok;
+using static Junhaehok.Packet;
+using static Junhaehok.HhhHelper;
 
 namespace JunhyehokServer
 {
     class ReceiveHandle
     {
-        string accessor;
         ClientHandle client;
-        ServerHandle server;
         Packet recvPacket;
 
-        static BackendHandle backend;
-        static Dictionary<long, ClientHandle> lobbyClients;
-        static List<ServerHandle> peerServers;
+        static Socket backend;
+        static List<string> awaitingInit;
+        static Dictionary<string, ClientHandle> lobbyClients;
         static Dictionary<long, Room> rooms;
-        static Dictionary<long, int[]> peerRespWait; //key: userId, value [0]: seqc, [1]: current seq count, [2]: success
-        readonly Header NoResponseHeader = new Header(-1, 0, 0);
-        readonly Packet NoResponsePacket = new Packet(new Header(-1, 0, 0), null);
+        readonly Header NoResponseHeader = new Header(ushort.MaxValue, 0);
+        readonly Packet NoResponsePacket = new Packet(new Header(ushort.MaxValue, 0), null);
 
-        /*
-        public static ReceiveHandler()
+        public ReceiveHandle(Socket backendSocket)
         {
-            lobbyClients = new Dictionary<long, ClientHandle>();
-            peerServers = new List<ServerHandle>();
+            backend = backendSocket;
+            awaitingInit = new List<string>();
+            lobbyClients = new Dictionary<string, ClientHandle>();
             rooms = new Dictionary<long, Room>();
-            peerRespWait = new Dictionary<long, int[]>();
-        }
-        */
-
-        public ReceiveHandle()
-        {
-            lobbyClients = new Dictionary<long, ClientHandle>();
-            peerServers = new List<ServerHandle>();
-            rooms = new Dictionary<long, Room>();
-            peerRespWait = new Dictionary<long, int[]>();
         }
 
-        public ReceiveHandle(ClientHandle client, Packet recvPacket, RedisHelper redis)
+        public ReceiveHandle(ClientHandle client, Packet recvPacket)
         {
-            this.accessor = "client";
             this.client = client;
             this.recvPacket = recvPacket;
-            this.redis = redis;
-        }
-
-        public ReceiveHandle(ServerHandle server, Packet recvPacket)
-        {
-            this.accessor = "server";
-            this.server = server;
-            this.recvPacket = recvPacket;
-        }
-
-        public bool SetPeerServers(string[] peerInfo, string thisServerPort)
-        {
-            bool havePeers = false;
-            foreach (string peerAddress in peerInfo)
-            {
-                Socket so = ConnectToPeer(peerAddress, thisServerPort);
-                if (null != so)
-                {
-                    ServerHandle peer = new ServerHandle(so);
-                    AddPeerServer(peer);
-                    havePeers = true;
-                }
-            }
-
-            return havePeers;
-        }
-
-        public void AddPeerServer(ServerHandle peer)
-        {
-            if (!peerServers.Contains(peer))
-                peerServers.Add(peer);
         }
 
         public static void RemoveClient(ClientHandle client)
         {
-            //TODO: implement sending signout packet to backend
+            Header requestHeader;
+            Packet requestPacket;
             if (client.Status == ClientHandle.State.Room)
             {
+                //TODO: make struct for leave room
+                requestHeader = new Header(Code.LEAVE_ROOM, 0);
+                requestPacket = new Packet(requestHeader, null);
+
+                bool success = backend.SendBytes(PacketToBytes(requestPacket));
+                if(!success)
+                {
+                    Console.WriteLine("ERR: RemoveClient send to backend failed");
+                    return;
+                }
+
+                //TODO: make struct for leave room
+                requestHeader = new Header(Code.SIGNOUT, 0);
+                requestPacket = new Packet(requestHeader, null);
+
+                success = backend.SendBytes(PacketToBytes(requestPacket));
+                if (!success)
+                {
+                    Console.WriteLine("ERR: RemoveClient send to backend failed");
+                    return;
+                }
+
                 Room requestedRoom;
                 lock (rooms)
                 {
@@ -95,6 +76,17 @@ namespace JunhyehokServer
             }
             else if (client.Status == ClientHandle.State.Lobby)
             {
+                //TODO: make struct for leave room
+                requestHeader = new Header(Code.SIGNOUT, 0);
+                requestPacket = new Packet(requestHeader, null);
+
+                bool success = backend.SendBytes(PacketToBytes(requestPacket));
+                if (!success)
+                {
+                    Console.WriteLine("ERR: RemoveClient send to backend failed");
+                    return;
+                }
+
                 lock (lobbyClients)
                     lobbyClients.Remove(client.UserId);
             }
@@ -102,24 +94,41 @@ namespace JunhyehokServer
                 Console.WriteLine("ERROR: REMOVECLIENT - you messed up");
         }
 
-        public static void RemoveServer(ServerHandle server)
+        //===========================================INITIALIZE 250==============================================
+        //===========================================INITIALIZE 250==============================================
+        //===========================================INITIALIZE 250==============================================
+        public Packet ResponseInitialize(Packet recvPacket)
         {
-            lock (peerServers)
+            Packet response;
+            Header returnHeader;
+            byte[] returnData;
+
+            string cookie = Encoding.UTF8.GetString(recvPacket.data);
+            bool authorized = false;
+            lock (awaitingInit)
             {
-                if (!peerServers.Remove(server))
-                    Console.WriteLine("ERROR: REMOVESERVER - server was already removed");
+                if (awaitingInit.Contains(cookie))
+                {
+                    awaitingInit.Remove(cookie);
+                    authorized = true;
+                }
+            }
+            if (authorized)
+            {
+                lock (lobbyClients)
+                    lobbyClients.Add(cookie, client);
             }
 
-            lock (rooms)
-            {
-                foreach (KeyValuePair<long, Room> room in rooms)
-                    room.Value.RemoveServer(server);
-            }
+            returnData = null;
+            returnHeader = new Header(Code.INITIALIZE_SUCCESS, 0);
+            response = new Packet(returnHeader, returnData);
+
+            return response;
         }
         //==============================================CREATE 700===============================================
         //==============================================CREATE 700===============================================
         //==============================================CREATE 700===============================================
-        public Packet ResponseCreate(Packet recvPacket, RedisHelper redis)
+        public Packet ResponseCreate(Packet recvPacket)
         {
             Packet response;
             Header returnHeader;
@@ -135,8 +144,9 @@ namespace JunhyehokServer
             if (-1 == roomId)
             {
                 //make packet for room duplicate
-                returnHeader = new Header(Comm.CS, Code.CREATE_DUPLICATE_ERR, 0);
+                returnHeader = new Header(Code.CREATE_ROOM_FAIL, 0);
                 returnData = null;
+                response = new Packet(returnHeader, returnData);
             }
             else
             {
@@ -146,15 +156,14 @@ namespace JunhyehokServer
                     rooms.Add(roomId, requestedRoom);
 
                 //make packet for room create success
-                byte[] roomIdBytes = BitConverter.GetBytes(roomId);
-                returnHeader = new Header(Comm.CS, Code.CREATE_RES, roomIdBytes.Length);
-                returnData = roomIdBytes;
                 /*
-                createAndJoin = true;
-                goto case Code.JOIN;
+                byte[] roomIdBytes = BitConverter.GetBytes(roomId);
+                returnHeader = new Header(Code.CREATE_ROOM_SUCCESS, (ushort)roomIdBytes.Length);
+                returnData = roomIdBytes;
                 */
+
+                response = ResponseJoin(recvPacket, true);
             }
-            response = new Packet(returnHeader, returnData);
             return response;
         }
         //================================================JOIN 500===============================================
@@ -504,6 +513,22 @@ namespace JunhyehokServer
 
             response = new Packet(returnHeader, returnData);
             return response;
+        }
+        //========================================SIGNIN_SUCCESS   ===============================================
+        //========================================SIGNIN_SUCCESS   ===============================================
+        //========================================SIGNIN_SUCCESS   ===============================================
+        public Packet ResponseSigninSuccess(Packet recvPacket)
+        {
+            string cookie = Encoding.UTF8.GetString(recvPacket.data);
+            lock (awaitingInit)
+            {
+                if (awaitingInit.Contains(cookie))
+                    Console.WriteLine("SigninSuccess : someone fucked up");
+                else
+                    awaitingInit.Add(cookie);
+            }
+
+            return NoResponsePacket;
         }
         //=========================================SIGNIN_DUMMY 330===============================================
         //=========================================SIGNIN_DUMMY 330===============================================
@@ -894,236 +919,111 @@ namespace JunhyehokServer
         //=============================================SWITCH CASE============================================
         //=============================================SWITCH CASE============================================
         //=============================================SWITCH CASE============================================
-        public Packet GetResponse(out ClientHandle surrogateClient)
+        public Packet GetResponse()
         {
             Packet responsePacket = new Packet();
-            ClientHandle surrogateCandidate = null; //null is default
 
             string remoteHost = "";
             string remotePort = "";
-
             bool debug = true;
 
-            if (debug && recvPacket.header.code != Code.HEARTBEAT && recvPacket.header.code != Code.HEARTBEAT_RES && recvPacket.header.code != Code.MLIST && recvPacket.header.code != -1)
+            if (debug && recvPacket.header.code != Code.HEARTBEAT && recvPacket.header.code != Code.HEARTBEAT_SUCCESS && recvPacket.header.code != ushort.MaxValue)
             {
-                if ("client" == accessor)
-                {
-                    remoteHost = ((IPEndPoint)client.So.RemoteEndPoint).Address.ToString();
-                    remotePort = ((IPEndPoint)client.So.RemoteEndPoint).Port.ToString();
-                    Console.WriteLine("\n[Client] {0}:{1}", remoteHost, remotePort);
-                }
-                else if ("server" == accessor)
-                {
-                    remoteHost = ((IPEndPoint)server.So.RemoteEndPoint).Address.ToString();
-                    remotePort = ((IPEndPoint)server.So.RemoteEndPoint).Port.ToString();
-                    Console.WriteLine("\n[Server] {0}:{1}", remoteHost, remotePort);
-                }
-                else
-                    Console.WriteLine("ERROR: RECVHANDLER - accessor is not set");
+                remoteHost = ((IPEndPoint)client.So.RemoteEndPoint).Address.ToString();
+                remotePort = ((IPEndPoint)client.So.RemoteEndPoint).Port.ToString();
+                Console.WriteLine("\n[Client] {0}:{1}", remoteHost, remotePort);
                 Console.WriteLine("==RECEIVED: \n" + PacketDebug(recvPacket));
             }
 
-            //=============================COMM CS==============================
-            if (Comm.CS == recvPacket.header.comm)
-            {
                 bool createAndJoin = false; //keep this! don't delete (in case we want to Create and Join together)
 
-                switch (recvPacket.header.code)
-                {
-                    //------------No action from client----------
-                    case -1:
-                        responsePacket = new Packet(new Header(Comm.CS, Code.HEARTBEAT, 0), null);
-                        break;
-
-                    //------------CREATE------------
-                    case Code.CREATE:
-                        //CL -> FE side
-                        responsePacket = ResponseCreate(recvPacket, redis);
-                        break;
-
-                    //------------DESTROY------------
-                    case Code.DESTROY:
-                        //CL -> FE side
-                        break;
-
-                    //------------FAIL------------
-                    case Code.FAIL:
-                        responsePacket = NoResponsePacket;
-                        break;
-
-                    //------------HEARTBEAT------------
-                    case Code.HEARTBEAT_RES:
-                        //CL -> FE side
-                        responsePacket = NoResponsePacket;
-                        break;
-
-                    //------------JOIN------------
-                    case Code.JOIN:
-                        //CL -> FE side
-                        responsePacket = ResponseJoin(recvPacket, createAndJoin);
-                        break;
-
-                    //------------LEAVE------------
-                    case Code.LEAVE:
-                        //CL -> FE side
-                        responsePacket = ResponseLeave(recvPacket);
-                        break;
-
-                    //------------LIST------------
-                    case Code.LIST:
-                        //CL -> FE side
-                        responsePacket = ResponseList(recvPacket);
-                        break;
-
-                    //------------MLIST-----------
-                    case Code.MLIST:
-                        //MCL -> FE side
-                        responsePacket = ResponseMlist(recvPacket);
-                        break;
-
-                    //------------MSG------------
-                    case Code.MSG:
-                        //CL <--> FE side
-                        responsePacket = ResponseMsg(recvPacket, redis);
-                        break;
-                    case Code.MSG_ERR:
-                        //CL <--> FE side
-                        break;
-
-                    //------------SIGNIN------------
-                    case Code.SIGNIN:
-                        //CL -> FE -> BE side
-                        responsePacket = ResponseSignin(recvPacket, redis);
-                        break;
-                    case Code.SIGNIN_DUMMY:
-                        //CL -> FE
-                        responsePacket = ResponseSigninDummy(recvPacket, redis);
-                        break;
-
-                    //------------SIGNUP------------
-                    case Code.SIGNUP:
-                        //CL -> FE -> BE side
-                        responsePacket = ResponseSignup(recvPacket, redis);
-                        break;
-
-                    //------------SUCCESS------------
-                    case Code.SUCCESS:
-                        responsePacket = NoResponsePacket;
-                        break;
-
-                    default:
-                        if (debug)
-                            Console.WriteLine("Unknown code: {0}\n", recvPacket.header.code);
-                        break;
-                }
-                surrogateCandidate = client;
-            }
-            //=============================COMM SS==============================
-            else if (Comm.SS == recvPacket.header.comm)
+            switch (recvPacket.header.code)
             {
-                switch (recvPacket.header.code)
-                {
-                    //------------No action from client----------
-                    case -1:
-                        responsePacket = new Packet(new Header(Comm.SS, Code.HEARTBEAT, 0), null);
-                        break;
+                //------------No action from client----------
+                case ushort.MaxValue:
+                    responsePacket = new Packet(new Header(Code.HEARTBEAT, 0), null);
+                    break;
 
-                    //------------HEARTBEAT------------
-                    case Code.HEARTBEAT:
-                        //FE -> CL side
-                        responsePacket = new Packet(new Header(Comm.SS, Code.HEARTBEAT_RES, 0), null);
-                        break;
-                    case Code.HEARTBEAT_RES:
-                        //CL -> FE side
-                        responsePacket = NoResponsePacket;
-                        break;
+                //------------CREATE------------
+                case Code.CREATE_ROOM:
+                    //CL -> FE side
+                    responsePacket = ResponseCreate(recvPacket);
+                    break;
 
-                    //------------SDESTROY------------
-                    case Code.SDESTROY:
-                        //FE side
-                        break;
-                    case Code.SDESTROY_ERR:
-                        //FE side
-                        break;
+                //------------DESTROY------------
+                case Code.DESTROY_ROOM:
+                    //CL -> FE side
+                    break;
 
-                    //------------SJOIN------------
-                    case Code.SJOIN:
-                        //FE side
-                        responsePacket = ResponseSjoin(recvPacket);
-                        break;
-                    case Code.SJOIN_RES:
-                        //FE side
-                        responsePacket = ResponseSjoinRes(recvPacket, out surrogateCandidate);
-                        break;
-                    case Code.SJOIN_ERR:
-                        //FE side
-                        responsePacket = ResponseSjoinErr(recvPacket, out surrogateCandidate);
-                        break;
+                //------------HEARTBEAT------------
+                case Code.HEARTBEAT:
+                    //FE -> CL side
+                    responsePacket = new Packet(new Header(Code.HEARTBEAT_SUCCESS, 0), null);
+                    break;
+                case Code.HEARTBEAT_SUCCESS:
+                    //CL -> FE side
+                    responsePacket = NoResponsePacket;
+                    break;
 
-                    //------------SLEAVE-----------
-                    case Code.SLEAVE:
-                        //FE side
-                        responsePacket = ResponseSleave(recvPacket);
-                        break;
-                    case Code.SLEAVE_ERR:
-                        //FE side
-                        break;
-                    case Code.SLEAVE_RES:
-                        //FE side
-                        break;
+                //------------JOIN------------
+                case Code.JOIN:
+                    //CL -> FE side
+                    responsePacket = ResponseJoin(recvPacket, createAndJoin);
+                    break;
 
-                    //------------SLIST------------
-                    case Code.SLIST:
-                        //FE side
-                        responsePacket = ResponseSlist(recvPacket);
-                        break;
-                    case Code.SLIST_ERR:
-                        //FE side
-                        break;
+                //------------LEAVE------------
+                case Code.LEAVE_ROOM:
+                    //CL -> FE side
+                    responsePacket = ResponseLeave(recvPacket);
+                    break;
 
-                    case Code.SLIST_RES:
-                        //FE side
-                        responsePacket = ResponseSlistRes(recvPacket, out surrogateCandidate);
-                        break;
+                //------------LIST------------
+                case Code.ROOM_LIST:
+                    //CL -> FE side
+                    responsePacket = ResponseList(recvPacket);
+                    break;
 
-                    //------------SMSG------------                
-                    case Code.SMSG:
-                        //FE side
-                        responsePacket = ResponseSmsg(recvPacket);
-                        break;
-                    case Code.SMSG_ERR:
-                        //FE side
-                        break;
-                }
-            }
-            //=============================COMM DS==============================
-            else if (Comm.DUMMY == recvPacket.header.comm)
-            {
+                //------------MSG------------
+                case Code.MSG:
+                    //CL <--> FE side
+                    responsePacket = ResponseMsg(recvPacket);
+                    break;
+                case Code.MSG_FAIL:
+                    //CL <--> FE side
+                    break;
 
+                //------------SIGNIN------------
+                case Code.SIGNIN:
+                    //CL -> FE -> BE side
+                    responsePacket = ResponseSignin(recvPacket);
+                    break;
+                case Code.SIGNIN_SUCCESS:
+                    responsePacket = ResponseSigninSuccess(recvPacket);
+                    break;
+                case Code.DUMMY_SIGNIN:
+                    //CL -> FE
+                    responsePacket = ResponseSigninDummy(recvPacket);
+                    break;
+
+                //------------SIGNUP------------
+                case Code.SIGNUP:
+                    //CL -> FE -> BE side
+                    responsePacket = ResponseSignup(recvPacket);
+                    break;
+
+                default:
+                    if (debug)
+                        Console.WriteLine("Unknown code: {0}\n", recvPacket.header.code);
+                    break;
             }
 
             //===============Build Response/Set Surrogate/Return================
-            if (debug && responsePacket.header.comm != -1 && responsePacket.header.code != Code.HEARTBEAT && responsePacket.header.code != Code.HEARTBEAT_RES && responsePacket.header.code != Code.MLIST_RES && responsePacket.header.code != Code.MLIST_ERR)
+            if (debug && responsePacket.header.code != ushort.MaxValue && responsePacket.header.code != Code.HEARTBEAT && responsePacket.header.code != Code.HEARTBEAT_SUCCESS)
             {
                 Console.WriteLine("==SEND: \n" + PacketDebug(responsePacket));
-                if ("client" == accessor)
-                    Console.WriteLine("^[Client] {0}:{1}", remoteHost, remotePort);
-                else if ("server" == accessor)
-                {
-                    if (null == surrogateCandidate)
-                        Console.WriteLine("^[Server] {0}:{1}", remoteHost, remotePort);
-                    else
-                    {
-                        remoteHost = ((IPEndPoint)surrogateCandidate.So.RemoteEndPoint).Address.ToString();
-                        remotePort = ((IPEndPoint)surrogateCandidate.So.RemoteEndPoint).Port.ToString();
-                        Console.WriteLine("^[Client] {0}:{1}", remoteHost, remotePort);
-                    }
-                }
-                else
-                    Console.WriteLine("ERROR: RECVHANDLER - accessor is not set");
+                Console.WriteLine("^[Client] {0}:{1}", remoteHost, remotePort);
             }
 
-            surrogateClient = surrogateCandidate;
             return responsePacket;
         }
 
@@ -1174,43 +1074,6 @@ namespace JunhyehokServer
             }
 
             return result;
-        }
-
-        private Socket ConnectToPeer(string info, string thisServerPort)
-        {
-            string[] hostport = info.Split(':');
-
-            if ("127.0.0.1" == hostport[0] && thisServerPort == hostport[1]) //if its trying to connect to itself
-                return null;
-            else
-            {
-                string host;
-                int port;
-
-                host = hostport[0];
-                if (!int.TryParse(hostport[1], out port))
-                {
-                    Console.Error.WriteLine("port must be int. given: {0}", hostport[1]);
-                    Environment.Exit(0);
-                }
-
-                Socket so = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-                IPAddress ipAddress = IPAddress.Parse(host);
-                Console.WriteLine("[Server] Establishing connection to {0}:{1} ...", host, port);
-
-                try
-                {
-                    so.Connect(ipAddress, port);
-                    //Console.WriteLine("[Server] Connection established.\n");
-                }
-                catch (Exception)
-                {
-                    Console.WriteLine("Peer is not alive.");
-                    return null;
-                }
-
-                return so;
-            }
         }
     }
 }

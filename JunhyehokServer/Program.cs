@@ -50,16 +50,17 @@ namespace JunhyehokServer
             string backendInfo = "";
             try { backendInfo = System.IO.File.ReadAllText("backend.conf"); }
             catch (Exception e) { Console.WriteLine("\n" + e.Message); Environment.Exit(0); }
-            Socket so = Connect(backendInfo);
+            Socket backendSocket = Connect(backendInfo);
 
-            ClientHandle backend = new ClientHandle(backendInfo, "backend");
-            backend.Connect();
+            ClientHandle backend = new ClientHandle(backendSocket);
+            backend.StartSequence();
 
             //======================INITIALIZE==================================
             Console.WriteLine("Initializing lobby and rooms...");
-            ReceiveHandle recvHandle = new ReceiveHandle();
+            ReceiveHandle recvHandle = new ReceiveHandle(backendSocket);
 
             //===================CLIENT SOCKET ACCEPT===========================
+            Console.WriteLine("Accepting clients...");
             while (true)
             {
                 Socket s = echoc.so.Accept();
@@ -67,22 +68,34 @@ namespace JunhyehokServer
                 client.StartSequence();
             }
         }
-        public Socket Connect(string hostport)
+        public static Socket Connect(string info)
         {
+            string host;
+            int port;
+            string[] hostport = info.Split(':');
+            host = hostport[0];
+            if (!int.TryParse(hostport[1], out port))
+            {
+                Console.Error.WriteLine("port must be int. given: {0}", hostport[1]);
+                Environment.Exit(0);
+            }
+
             Socket so = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
             IPAddress ipAddress = IPAddress.Parse(host);
 
-            Console.WriteLine("[Backend] Establishing connection to {0}:{1} ...", host, port);
+            Console.WriteLine("Establishing connection to {0}:{1} ...", host, port);
 
             try
             {
                 so.Connect(ipAddress, port);
-                Console.WriteLine("[Server] Connection established.\n");
+                Console.WriteLine("Connection established.\n");
             }
             catch (Exception)
             {
                 Console.WriteLine("Peer is not alive.");
             }
+
+            return so;
         }
     }
 }
