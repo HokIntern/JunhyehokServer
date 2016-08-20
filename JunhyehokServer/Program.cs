@@ -5,6 +5,8 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading.Tasks;
+using Junhaehok;
+using static Junhaehok.HhhHelper;
 
 namespace JunhyehokServer
 {
@@ -54,6 +56,17 @@ namespace JunhyehokServer
             //Socket backendSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 
             ClientHandle backend = new ClientHandle(backendSocket);
+
+            //send ADVERTISE to backend
+            FBAdvertiseRequest fbAdvertiseRequest;
+            char[] ip = ((IPEndPoint)backend.So.LocalEndPoint).Address.ToString().ToCharArray();
+            char[] ipBuffer = new char[15];
+            Array.Copy(ip, ipBuffer, ip.Length);
+            fbAdvertiseRequest.ip = ipBuffer;
+            fbAdvertiseRequest.port = int.Parse(clientPort);
+            byte[] advertiseBytes = Serializer.StructureToByte(fbAdvertiseRequest);
+            backend.So.SendBytes(new Packet(new Header(Code.ADVERTISE, (ushort)advertiseBytes.Length), advertiseBytes));
+            //FIRE OFF TASK
             backend.StartSequence();
 
             //======================INITIALIZE==================================

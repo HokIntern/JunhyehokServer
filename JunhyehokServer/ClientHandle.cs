@@ -33,15 +33,15 @@ namespace JunhyehokServer
         string remoteHost;
         string remotePort;
 
-        public Socket So { get; }
+        public Socket So { get { return so; } }
         public char[] CookieChar { get { return cookieChar; } set { cookieChar = value; Cookie = cookieChar.ToString(); } }
         public string Cookie { get { return cookie; } set { cookie = value; cookieBites = Encoding.UTF8.GetBytes(value); } }
-        public byte[] CookieBites { get; }
-        public long UserId { get; set; }
-        public State Status { get; set; }
-        public bool IsDummy { get; set; }
-        public int RoomId { get; set; }
-        public int ChatCount { get; set; }
+        public byte[] CookieBites { get { return cookieBites; } }
+        public long UserId { get { return userId; } set { userId = value; } }
+        public State Status { get { return status; } set { status = value; } }
+        public bool IsDummy { get { return isDummy; } set { isDummy = value; } }
+        public int RoomId { get { return roomId; } set { roomId = value; } }
+        public int ChatCount { get { return chatCount; } set { chatCount = value; } }
 
         public enum State
         {
@@ -57,7 +57,7 @@ namespace JunhyehokServer
             userId = -1;
             Console.WriteLine("[Client] Connection established with {0}:{1}\n", remoteHost, remotePort);
         }
-
+        
         public async void StartSequence()
         {
             while (true)
@@ -146,7 +146,8 @@ namespace JunhyehokServer
             {
                 try
                 {
-                    so.ReceiveTimeout = 10000;
+                    so.ReceiveTimeout = 3000000;
+                    //so.ReceiveTimeout = 120000;
                     bytecount = await Task.Run(() => so.Receive(bytes));
 
                     //assumes that the line above(so.Receive) will throw exception 

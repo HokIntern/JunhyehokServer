@@ -97,7 +97,7 @@ namespace JunhyehokServer
         {
             FBConnectionPassResponse fbConnectionPassResp = (FBConnectionPassResponse)Serializer.ByteToStructure(recvPacket.data, typeof(FBConnectionPassResponse));
             char[] cookieChar = fbConnectionPassResp.cookie;
-            string cookie = cookieChar.ToString();
+            string cookie = new string(cookieChar);
             lock (awaitingInit)
             {
                 if (awaitingInit.ContainsKey(cookie))
@@ -515,22 +515,20 @@ namespace JunhyehokServer
         //=============================================SWITCH CASE============================================
         public Packet GetResponse()
         {
-            if (!HasInitialized())
-                return new Packet(new Header(Code.INITIALIZE_FAIL, 0), null);
-
             Packet responsePacket = new Packet();
 
-            string remoteHost = "";
-            string remotePort = "";
+            string remoteHost = ((IPEndPoint)client.So.RemoteEndPoint).Address.ToString();
+            string remotePort = ((IPEndPoint)client.So.RemoteEndPoint).Port.ToString();
             bool debug = true;
 
             if (debug && recvPacket.header.code != Code.HEARTBEAT && recvPacket.header.code != Code.HEARTBEAT_SUCCESS && recvPacket.header.code != ushort.MaxValue)
             {
-                remoteHost = ((IPEndPoint)client.So.RemoteEndPoint).Address.ToString();
-                remotePort = ((IPEndPoint)client.So.RemoteEndPoint).Port.ToString();
                 Console.WriteLine("\n[Client] {0}:{1}", remoteHost, remotePort);
                 Console.WriteLine("==RECEIVED: \n" + PacketDebug(recvPacket));
             }
+
+            if (!HasInitialized())
+                return new Packet(new Header(Code.INITIALIZE_FAIL, 0), null);
 
             switch (recvPacket.header.code)
             {
@@ -644,6 +642,8 @@ namespace JunhyehokServer
         }
         private bool HasInitialized()
         {
+            if (client.So.LocalEndPoint.ToString() == backend.LocalEndPoint.ToString())
+                return true;
             return !(client.UserId == -1 || client.Cookie == null);
         }
     }
