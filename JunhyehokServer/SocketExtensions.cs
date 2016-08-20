@@ -13,7 +13,7 @@ namespace JunhyehokServer
     {
         public static bool SendBytes(this Socket so, Packet packet)
         {
-            byte[] bytes = HhhHelper.PacketToBytes(packet);
+            byte[] bytes = PacketToBytes(packet);
             int bytecount;
             try
             {

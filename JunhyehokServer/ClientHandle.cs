@@ -54,6 +54,7 @@ namespace JunhyehokServer
             status = State.Online;
             remoteHost = ((IPEndPoint)so.RemoteEndPoint).Address.ToString();
             remotePort = ((IPEndPoint)so.RemoteEndPoint).Port.ToString();
+            userId = -1;
             Console.WriteLine("[Client] Connection established with {0}:{1}\n", remoteHost, remotePort);
         }
 
@@ -71,10 +72,10 @@ namespace JunhyehokServer
                 Packet respPacket = recvHandle.GetResponse();
 
                 //=======================Send Response==========================
-                if (ushort.MaxValue != respPacket.header.code)
+                if (ushort.MaxValue != respPacket.header.code) //if it isnt a NoResponsePacket
                 {
                     byte[] respBytes = PacketToBytes(respPacket);
-                    bool sendSuccess = sendBytes(respBytes);
+                    bool sendSuccess = SendBytes(respBytes);
                     if (!sendSuccess)
                     {
                         Console.WriteLine("Send failed.");
@@ -128,20 +129,6 @@ namespace JunhyehokServer
             Console.WriteLine("Connection closed\n");
         }
 
-        /*
-        public void EchoSend(Packet echoPacket)
-        {
-            if (debug)
-                Console.WriteLine("==SEND: \n" + PacketDebug(echoPacket));
-            byte[] echoBytes = PacketToBytes(echoPacket);
-            bool echoSuccess = sendBytes(echoBytes);
-            if (!echoSuccess)
-            {
-                Console.WriteLine("FAIL: Relay message to client {0} failed", userId);
-            }
-        }
-        */
-
         private void Signout()
         {
             if (status == State.Lobby || status == State.Room)
@@ -159,7 +146,7 @@ namespace JunhyehokServer
             {
                 try
                 {
-                    so.ReceiveTimeout = 120000;
+                    so.ReceiveTimeout = 10000;
                     bytecount = await Task.Run(() => so.Receive(bytes));
 
                     //assumes that the line above(so.Receive) will throw exception 
@@ -182,7 +169,7 @@ namespace JunhyehokServer
                             if (heartbeatMiss == 2)
                                 return null;
 
-                            //puts -1 bytes into 1st and  bytes (CODE)
+                            //puts -1 bytes into 1st and 2nd bytes (CODE)
                             byte[] noRespBytes = BitConverter.GetBytes((ushort)ushort.MaxValue-1);
                             bytes[0] = noRespBytes[0];
                             bytes[1] = noRespBytes[1];
@@ -193,7 +180,7 @@ namespace JunhyehokServer
             return bytes;
         }
 
-        private bool sendBytes(byte[] bytes)
+        private bool SendBytes(byte[] bytes)
         {
             try
             {

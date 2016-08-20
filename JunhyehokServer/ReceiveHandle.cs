@@ -13,6 +13,7 @@ namespace JunhyehokServer
 {
     class ReceiveHandle
     {
+        //TODO: ALWAYS CHECK IF CONNECTION IN AWAITINGINIT
         ClientHandle client;
         Packet recvPacket;
 
@@ -116,8 +117,8 @@ namespace JunhyehokServer
             Header returnHeader;
             byte[] returnData;
 
-            FBInitializeRequest fbInitializeReq = (FBInitializeRequest)Serializer.ByteToStructure(recvPacket.data, typeof(FBInitializeRequest));
-            char[] cookieChar = fbInitializeReq.cookie;
+            CFInitializeRequest cfInitializeReq = (CFInitializeRequest)Serializer.ByteToStructure(recvPacket.data, typeof(CFInitializeRequest));
+            char[] cookieChar = cfInitializeReq.cookie;
             string cookie = cookieChar.ToString();
             long uid;
             bool authorized = false;
@@ -179,8 +180,13 @@ namespace JunhyehokServer
                 //add room to dictionary
                 Room requestedRoom = new Room(roomId);
                 lock (rooms)
+                {
                     rooms.Add(roomId, requestedRoom);
-
+                    requestedRoom.AddClient(client);
+                    client.Status = ClientHandle.State.Room;
+                    client.RoomId = roomId;
+                }
+                
                 //send CREATE_ROOM_SUCCESS back to client
                 Header clientRespHeader = new Header(Code.CREATE_ROOM_SUCCESS, 0);
                 Packet clientRespPacket = new Packet(clientRespHeader, null);
@@ -509,6 +515,9 @@ namespace JunhyehokServer
         //=============================================SWITCH CASE============================================
         public Packet GetResponse()
         {
+            if (!HasInitialized())
+                return new Packet(new Header(Code.INITIALIZE_FAIL, 0), null);
+
             Packet responsePacket = new Packet();
 
             string remoteHost = "";
@@ -526,7 +535,7 @@ namespace JunhyehokServer
             switch (recvPacket.header.code)
             {
                 //------------No action from client----------
-                case ushort.MaxValue:
+                case ushort.MaxValue-1:
                     responsePacket = new Packet(new Header(Code.HEARTBEAT, 0), null);
                     break;
 
@@ -632,6 +641,10 @@ namespace JunhyehokServer
                 return null;
             }
             return clientToSend;
+        }
+        private bool HasInitialized()
+        {
+            return !(client.UserId == -1 || client.Cookie == null);
         }
     }
 }
