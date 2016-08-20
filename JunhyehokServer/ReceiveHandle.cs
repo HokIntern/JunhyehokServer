@@ -119,7 +119,7 @@ namespace JunhyehokServer
 
             CFInitializeRequest cfInitializeReq = (CFInitializeRequest)Serializer.ByteToStructure(recvPacket.data, typeof(CFInitializeRequest));
             char[] cookieChar = cfInitializeReq.cookie;
-            string cookie = cookieChar.ToString();
+            string cookie = new string(cookieChar);
             long uid;
             bool authorized = false;
             lock (awaitingInit)
@@ -642,7 +642,7 @@ namespace JunhyehokServer
         }
         private bool HasInitialized()
         {
-            if (client.So.LocalEndPoint.ToString() == backend.LocalEndPoint.ToString())
+            if (client.So.LocalEndPoint.ToString() == backend.LocalEndPoint.ToString() || recvPacket.header.code == Code.INITIALIZE)
                 return true;
             return !(client.UserId == -1 || client.Cookie == null);
         }
