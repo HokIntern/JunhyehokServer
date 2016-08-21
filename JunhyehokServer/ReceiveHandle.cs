@@ -105,7 +105,10 @@ namespace JunhyehokServer
                     }
                 }
 
-                if (signout)
+                bool clientExists = false;
+                lock (clients)
+                    clientExists = clients.ContainsKey(client.UserId);
+                if (signout && clientExists)
                 {
                     FBSignoutRequest fbSignoutReq;
                     fbSignoutReq.cookie = client.CookieChar;

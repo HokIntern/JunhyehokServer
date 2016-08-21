@@ -85,7 +85,7 @@ namespace JunhyehokServer
                 }
 
                 // if Initialize_fail, it means the user came with a bad cookie
-                if (respPacket.header.code == Code.INITIALIZE_FAIL)
+                if (respPacket.header.code == Code.INITIALIZE_FAIL) //TODO: check if respPacket code is Delete User Success and call CloseConnection(false) -> no signout
                     break; //close socket connection
 
                 //=======================Check Connection=======================
