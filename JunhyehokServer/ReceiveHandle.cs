@@ -49,9 +49,9 @@ namespace JunhyehokServer
                 if (client.Status == ClientHandle.State.Room)
                 {
                     FBRoomLeaveRequest fbRoomLeaveReq;
-                    fbRoomLeaveReq.cookie = client.CookieChar;
+                    fbRoomLeaveReq.roomNum = client.RoomId;
                     requestData = Serializer.StructureToByte(fbRoomLeaveReq);
-                    requestHeader = new Header(Code.LEAVE_ROOM, (ushort)requestData.Length);
+                    requestHeader = new Header(Code.LEAVE_ROOM, (ushort)requestData.Length, client.UserId);
                     requestPacket = new Packet(requestHeader, requestData);
 
                     success = backend.SendBytes(requestPacket);
@@ -74,7 +74,7 @@ namespace JunhyehokServer
                 FBSignoutRequest fbSignoutReq;
                 fbSignoutReq.cookie = client.CookieChar;
                 requestData = Serializer.StructureToByte(fbSignoutReq);
-                requestHeader = new Header(Code.SIGNOUT, (ushort)requestData.Length);
+                requestHeader = new Header(Code.SIGNOUT, (ushort)requestData.Length, client.UserId);
                 requestPacket = new Packet(requestHeader, requestData);
 
                 success = backend.SendBytes(requestPacket);
@@ -182,14 +182,20 @@ namespace JunhyehokServer
                 lock (rooms)
                 {
                     rooms.Add(roomId, requestedRoom);
-                    requestedRoom.AddClient(client);
-                    client.Status = ClientHandle.State.Room;
-                    client.RoomId = roomId;
+                    //IMPORTANT: have to add client to room and change its status because
+                    //client side assumes join when FE sends CREATE_SUCCESS
+                    //so no choice but to do it here
+                    requestedRoom.AddClient(clientToSend);
+                    clientToSend.Status = ClientHandle.State.Room;
+                    clientToSend.RoomId = roomId;
                 }
-                
+
                 //send CREATE_ROOM_SUCCESS back to client
-                Header clientRespHeader = new Header(Code.CREATE_ROOM_SUCCESS, 0);
-                Packet clientRespPacket = new Packet(clientRespHeader, null);
+                CFRoomCreateResponse cfRoomCreateResp;
+                cfRoomCreateResp.roomNum = roomId;
+                byte[] cfRoomCreateRespBytes = Serializer.StructureToByte(cfRoomCreateResp);
+                Header clientRespHeader = new Header(Code.CREATE_ROOM_SUCCESS, (ushort)cfRoomCreateRespBytes.Length);
+                Packet clientRespPacket = new Packet(clientRespHeader, cfRoomCreateRespBytes);
                 clientToSend.So.SendBytes(clientRespPacket);
 
                 //send JOIN to Backend
@@ -299,6 +305,52 @@ namespace JunhyehokServer
 
             return response;
         }
+        //==========================================JOIN_FULL_FAIL 605==========================================
+        //==========================================JOIN_FULL_FAIL 605==========================================
+        //==========================================JOIN_FULL_FAIL 605==========================================
+        public Packet ResponseJoinFullFail(Packet recvPacket)
+        {
+            Packet response;
+            Header returnHeader;
+
+            ClientHandle clientToSend = GetClientFromUid(recvPacket.header.uid);
+            if (null != clientToSend)
+            {
+                returnHeader = new Header(recvPacket.header.code, 0);
+                response = new Packet(returnHeader, null);
+                clientToSend.So.SendBytes(response);
+
+                //send nothing back to Backend
+                response = NoResponsePacket;
+            }
+            else
+                response = NoResponsePacket;
+
+            return response;
+        }
+        //==========================================JOIN_NULL_FAIL 605==========================================
+        //==========================================JOIN_NULL_FAIL 605==========================================
+        //==========================================JOIN_NULL_FAIL 605==========================================
+        public Packet ResponseJoinNullFail(Packet recvPacket)
+        {
+            Packet response;
+            Header returnHeader;
+
+            ClientHandle clientToSend = GetClientFromUid(recvPacket.header.uid);
+            if (null != clientToSend)
+            {
+                returnHeader = new Header(recvPacket.header.code, 0);
+                response = new Packet(returnHeader, null);
+                clientToSend.So.SendBytes(response);
+
+                //send nothing back to Backend
+                response = NoResponsePacket;
+            }
+            else
+                response = NoResponsePacket;
+
+            return response;
+        }
         //========================================JOIN_REDIRECT 605=============================================
         //========================================JOIN_REDIRECT 605=============================================
         //========================================JOIN_REDIRECT 605=============================================
@@ -355,8 +407,12 @@ namespace JunhyehokServer
                     }
                     else
                     {
-                        Header backendReqHeader = new Header(Code.LEAVE_ROOM, 0, client.UserId);
-                        Packet backendReqPacket = new Packet(backendReqHeader, null);
+                        FBRoomLeaveRequest fbRoomLeaveReq;
+                        fbRoomLeaveReq.roomNum = client.RoomId;
+                        byte[] fbRoomLeaveReqBytes = Serializer.StructureToByte(fbRoomLeaveReq);
+
+                        Header backendReqHeader = new Header(Code.LEAVE_ROOM, (ushort)fbRoomLeaveReqBytes.Length, client.UserId);
+                        Packet backendReqPacket = new Packet(backendReqHeader, fbRoomLeaveReqBytes);
                         backend.SendBytes(backendReqPacket);
 
                         requestedRoom.RemoveClient(client);
@@ -486,13 +542,9 @@ namespace JunhyehokServer
         {
             Room requestedRoom;
 
-            //TODO: update user chat count. make it so that it increments value in redis
-            if (!client.IsDummy)
-            {
-                client.ChatCount++;
-                //redis.IncrementUserChatCount(client.UserId);
-                client.ChatCount = 0;
-            }
+            client.ChatCount++;
+            //This send is to notify backend to increment chat count
+            backend.SendBytes(new Packet(new Header(Code.MSG, 0, client.UserId), null));
 
             lock (rooms)
             {
@@ -574,6 +626,12 @@ namespace JunhyehokServer
                     //CL -> FE side
                     responsePacket = ResponseJoin(recvPacket);
                     break;
+                case Code.JOIN_FULL_FAIL:
+                    responsePacket = ResponseJoinFullFail(recvPacket);
+                    break;
+                case Code.JOIN_NULL_FAIL:
+                    responsePacket = ResponseJoinNullFail(recvPacket);
+                    break;
                 case Code.JOIN_FAIL:
                     responsePacket = ResponseJoinFail(recvPacket);
                     break;
@@ -614,6 +672,12 @@ namespace JunhyehokServer
                     responsePacket = ResponseMsg(recvPacket);
                     break;
 
+                //-----------SIGNOUT---------
+                case Code.SIGNOUT:
+                    RemoveClient(client);
+                    responsePacket = NoResponsePacket;
+                    break;
+
                 default:
                     if (debug)
                         Console.WriteLine("Unknown code: {0}\n", recvPacket.header.code);
@@ -623,8 +687,8 @@ namespace JunhyehokServer
             //===============Build Response/Set Surrogate/Return================
             if (debug && responsePacket.header.code != ushort.MaxValue && responsePacket.header.code != Code.HEARTBEAT && responsePacket.header.code != Code.HEARTBEAT_SUCCESS)
             {
+                Console.WriteLine("\n[Client] {0}:{1}", remoteHost, remotePort);
                 Console.WriteLine("==SEND: \n" + PacketDebug(responsePacket));
-                Console.WriteLine("^[Client] {0}:{1}", remoteHost, remotePort);
             }
 
             return responsePacket;

@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading.Tasks;
@@ -15,9 +16,12 @@ namespace JunhyehokServer
         {
             byte[] bytes = PacketToBytes(packet);
             int bytecount;
+            string remoteHost = ((IPEndPoint)so.RemoteEndPoint).Address.ToString();
+            string remotePort = ((IPEndPoint)so.RemoteEndPoint).Port.ToString();
             try
             {
                 bytecount = so.Send(bytes);
+                Console.WriteLine("\n[Client] {0}:{1}", remoteHost, remotePort);
                 Console.WriteLine("==SEND: \n" + PacketDebug(packet));
             }
             catch (Exception e)
@@ -27,5 +31,15 @@ namespace JunhyehokServer
             }
             return true;
         }
+        /*
+        private static bool isConnected()
+        {
+            try
+            {
+                return !(so.Poll(1, SelectMode.SelectRead) && so.Available == 0);
+            }
+            catch (SocketException) { return false; }
+        }
+        */
     }
 }

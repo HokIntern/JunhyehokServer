@@ -7,6 +7,8 @@ using System.Text;
 using System.Threading.Tasks;
 using Junhaehok;
 using static Junhaehok.HhhHelper;
+using System.Web;
+using System.Net.WebSockets;
 
 namespace JunhyehokServer
 {
@@ -77,6 +79,13 @@ namespace JunhyehokServer
             Console.WriteLine("Accepting clients...");
             while (true)
             {
+                /*
+                if (clientPort == "80")
+                {
+                    var wstesthost = "ws://example.microsoft.com";
+                    var ws = new WebSocket(wstesthost);
+                }
+                */
                 Socket s = echoc.so.Accept();
                 ClientHandle client = new ClientHandle(s);
                 client.StartSequence();
