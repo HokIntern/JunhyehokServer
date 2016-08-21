@@ -490,48 +490,14 @@ namespace JunhyehokServer
         //=======================================LEAVE_ROOM_FAIL 705===========================================
         public Packet ResponseLeaveRoomFail(Packet recvPacket)
         {
-            Packet response;
-            Header returnHeader;
-
-            ClientHandle clientToSend = GetClientFromUid(recvPacket.header.uid);
-            if (null != clientToSend)
-            {
-                returnHeader = recvPacket.header;
-                returnHeader.uid = 0;
-                response = new Packet(returnHeader, recvPacket.data);
-                clientToSend.So.SendBytes(response);
-
-                //send nothing back to Backend
-                response = NoResponsePacket;
-            }
-            else
-                response = NoResponsePacket;
-
-            return response;
+            return ForwardPacketWithUserIdUpdated(recvPacket);
         }
         //=====================================LEAVE_ROOM_SUCCESS 702==========================================
         //=====================================LEAVE_ROOM_SUCCESS 702==========================================
         //=====================================LEAVE_ROOM_SUCCESS 702==========================================
         public Packet ResponseLeaveRoomSuccess(Packet recvPacket)
         {
-            Packet response;
-            Header returnHeader;
-
-            ClientHandle clientToSend = GetClientFromUid(recvPacket.header.uid);
-            if (null != clientToSend)
-            {
-                returnHeader = recvPacket.header;
-                returnHeader.uid = 0;
-                response = new Packet(returnHeader, recvPacket.data);
-                clientToSend.So.SendBytes(response);
-
-                //send nothing back to Backend
-                response = NoResponsePacket;
-            }
-            else
-                response = NoResponsePacket;
-
-            return response;
+            return ForwardPacketWithUserIdUpdated(recvPacket);
         }
         //==============================================LIST 400===============================================
         //==============================================LIST 400===============================================
@@ -549,48 +515,14 @@ namespace JunhyehokServer
         //==========================================LIST_SUCCESS 402===========================================
         public Packet ResponseListSuccess(Packet recvPacket)
         {
-            Packet response;
-            Header returnHeader;
-
-            ClientHandle clientToSend = GetClientFromUid(recvPacket.header.uid);
-            if (null != clientToSend)
-            {
-                returnHeader = recvPacket.header;
-                returnHeader.uid = 0;
-                response = new Packet(returnHeader, recvPacket.data);
-                clientToSend.So.SendBytes(response);
-
-                //send nothing back to Backend
-                response = NoResponsePacket;
-            }
-            else
-                response = NoResponsePacket;
-
-            return response;
+            return ForwardPacketWithUserIdUpdated(recvPacket);
         }
         //==========================================LIST_FAIL 405==============================================
         //==========================================LIST_FAIL 405==============================================
         //==========================================LIST_FAIL 405==============================================
         public Packet ResponseListFail(Packet recvPacket)
         {
-            Packet response;
-            Header returnHeader;
-
-            ClientHandle clientToSend = GetClientFromUid(recvPacket.header.uid);
-            if (null != clientToSend)
-            {
-                returnHeader = recvPacket.header;
-                returnHeader.uid = 0;
-                response = new Packet(returnHeader, recvPacket.data);
-                clientToSend.So.SendBytes(response);
-
-                //send nothing back to Backend
-                response = NoResponsePacket;
-            }
-            else
-                response = NoResponsePacket;
-
-            return response;
+            return ForwardPacketWithUserIdUpdated(recvPacket);
         }
         //================================================MSG 200===============================================
         //================================================MSG 200===============================================
@@ -619,6 +551,56 @@ namespace JunhyehokServer
 
             return NoResponsePacket;
         }
+        //=========================================UPDATE_USER 120==============================================
+        //=========================================UPDATE_USER 120==============================================
+        //=========================================UPDATE_USER 120==============================================
+        public Packet ResponseUpdateUser(Packet recvPacket)
+        {
+            recvPacket.header.uid = client.UserId;
+            backend.SendBytes(recvPacket);
+
+            return NoResponsePacket;
+        }
+        //===================================UPDATE_USER_SUCCESS 120============================================
+        //===================================UPDATE_USER_SUCCESS 120============================================
+        //===================================UPDATE_USER_SUCCESS 120============================================
+        public Packet ResponseUpdateUserSuccess(Packet recvPacket)
+        {
+            return ForwardPacketWithUserIdUpdated(recvPacket);
+        }
+        //======================================UPDATE_USER_FAIL 120============================================
+        //======================================UPDATE_USER_FAIL 120============================================
+        //======================================UPDATE_USER_FAIL 120============================================
+        public Packet ResponseUpdateUserFail(Packet recvPacket)
+        {
+            return ForwardPacketWithUserIdUpdated(recvPacket);
+        }
+        //=========================================DELETE_USER 120==============================================
+        //=========================================DELETE_USER 120==============================================
+        //=========================================DELETE_USER 120==============================================
+        public Packet ResponseDeleteUser(Packet recvPacket)
+        {
+            recvPacket.header.uid = client.UserId;
+            backend.SendBytes(recvPacket);
+
+            return NoResponsePacket;
+        }
+        //===================================DELETE_USER_SUCCESS 120============================================
+        //===================================DELETE_USER_SUCCESS 120============================================
+        //===================================DELETE_USER_SUCCESS 120============================================
+        public Packet ResponseDeleteUserSuccess(Packet recvPacket)
+        {
+            RemoveClient(client, false);
+            return ForwardPacketWithUserIdUpdated(recvPacket);
+        }
+        //======================================DELETE_USER_FAIL 120============================================
+        //======================================DELETE_USER_FAIL 120============================================
+        //======================================DELETE_USER_FAIL 120============================================
+        public Packet ResponseDeleteUserFail(Packet recvPacket)
+        {
+            return ForwardPacketWithUserIdUpdated(recvPacket);
+        }
+
         //=============================================SWITCH CASE============================================
         //=============================================SWITCH CASE============================================
         //=============================================SWITCH CASE============================================
@@ -743,10 +725,26 @@ namespace JunhyehokServer
                     responsePacket = NoResponsePacket;
                     break;
 
+                //---------UPDATE USER-------
                 case Code.UPDATE_USER:
+                    responsePacket = ResponseUpdateUser(recvPacket);
+                    break;
+                case Code.UPDATE_USER_SUCCESS:
+                    responsePacket = ResponseUpdateUserSuccess(recvPacket);
+                    break;
+                case Code.UPDATE_USER_FAIL:
+                    responsePacket = ResponseUpdateUserFail(recvPacket);
                     break;
 
+                //---------DELETE USER-------
                 case Code.DELETE_USER:
+                    responsePacket = ResponseDeleteUser(recvPacket);
+                    break;
+                case Code.DELETE_USER_SUCCESS:
+                    responsePacket = ResponseDeleteUserSuccess(recvPacket);
+                    break;
+                case Code.DELETE_USER_FAIL:
+                    responsePacket = ResponseDeleteUserFail(recvPacket);
                     break;
 
                 default:
@@ -810,6 +808,28 @@ namespace JunhyehokServer
                 accessor.WriteArray<byte>(0, aaServerInfoRespBytes, 0, aaServerInfoRespBytes.Length);
             }
             mutex.ReleaseMutex();
+        }
+
+        private Packet ForwardPacketWithUserIdUpdated(Packet recvPacket)
+        {
+            Packet response;
+            Header returnHeader;
+
+            ClientHandle clientToSend = GetClientFromUid(recvPacket.header.uid);
+            if (null != clientToSend)
+            {
+                returnHeader = recvPacket.header;
+                returnHeader.uid = 0;
+                response = new Packet(returnHeader, recvPacket.data);
+                clientToSend.So.SendBytes(response);
+
+                //send nothing back to Backend
+                response = NoResponsePacket;
+            }
+            else
+                response = NoResponsePacket;
+
+            return response;
         }
     }
 }
