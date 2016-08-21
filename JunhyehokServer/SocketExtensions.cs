@@ -16,10 +16,10 @@ namespace JunhyehokServer
         {
             byte[] bytes = PacketToBytes(packet);
             int bytecount;
-            string remoteHost = ((IPEndPoint)so.RemoteEndPoint).Address.ToString();
-            string remotePort = ((IPEndPoint)so.RemoteEndPoint).Port.ToString();
             try
             {
+                string remoteHost = ((IPEndPoint)so.RemoteEndPoint).Address.ToString();
+                string remotePort = ((IPEndPoint)so.RemoteEndPoint).Port.ToString();
                 bytecount = so.Send(bytes);
                 Console.WriteLine("\n[Client] {0}:{1}", remoteHost, remotePort);
                 Console.WriteLine("==SEND: \n" + PacketDebug(packet));

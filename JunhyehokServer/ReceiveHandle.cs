@@ -21,7 +21,7 @@ namespace JunhyehokServer
         Packet recvPacket;
         bool updateMMF;
 
-        static Socket backend;
+        public static Socket backend;
         static string mmfName;
         static Dictionary<string, long> awaitingInit;
         static Dictionary<long, ClientHandle> clients;
@@ -37,7 +37,7 @@ namespace JunhyehokServer
             mmf = MemoryMappedFile.CreateOrOpen(mmfName, Marshal.SizeOf(typeof(AAServerInfoResponse)));
             // Lock
             bool mutexCreated;
-            Mutex mutex = new Mutex(true, "MMF_IPC", out mutexCreated);
+            Mutex mutex = new Mutex(true, "MMF_IPC" + mmfName, out mutexCreated);
             mutex.ReleaseMutex();
             awaitingInit = new Dictionary<string, long>();
             clients = new Dictionary<long, ClientHandle>();
@@ -51,7 +51,7 @@ namespace JunhyehokServer
             updateMMF = false;
         }
 
-        public static void RemoveClient(ClientHandle client)
+        public static void RemoveClient(ClientHandle client, bool signout)
         {
             Header requestHeader;
             Packet requestPacket;
@@ -105,17 +105,20 @@ namespace JunhyehokServer
                     }
                 }
 
-                FBSignoutRequest fbSignoutReq;
-                fbSignoutReq.cookie = client.CookieChar;
-                requestData = Serializer.StructureToByte(fbSignoutReq);
-                requestHeader = new Header(Code.SIGNOUT, (ushort)requestData.Length, client.UserId);
-                requestPacket = new Packet(requestHeader, requestData);
-
-                success = backend.SendBytes(requestPacket);
-                if (!success)
+                if (signout)
                 {
-                    Console.WriteLine("ERR: RemoveClient send to backend failed");
-                    return;
+                    FBSignoutRequest fbSignoutReq;
+                    fbSignoutReq.cookie = client.CookieChar;
+                    requestData = Serializer.StructureToByte(fbSignoutReq);
+                    requestHeader = new Header(Code.SIGNOUT, (ushort)requestData.Length, client.UserId);
+                    requestPacket = new Packet(requestHeader, requestData);
+
+                    success = backend.SendBytes(requestPacket);
+                    if (!success)
+                    {
+                        Console.WriteLine("ERR: RemoveClient send to backend failed");
+                        return;
+                    }
                 }
 
                 lock (clients)
@@ -408,7 +411,7 @@ namespace JunhyehokServer
                 lock (clients)
                     clients.Remove(clientToSend.UserId);
                 updateMMF = true;
-                clientToSend.CloseConnection();
+                //clientToSend.CloseConnection();
 
                 //send nothing back to Backend
                 response = NoResponsePacket;
@@ -627,13 +630,21 @@ namespace JunhyehokServer
             string remotePort = ((IPEndPoint)client.So.RemoteEndPoint).Port.ToString();
             bool debug = true;
 
-            if (debug && recvPacket.header.code != Code.HEARTBEAT && recvPacket.header.code != Code.HEARTBEAT_SUCCESS && recvPacket.header.code != ushort.MaxValue)
+            if (debug && recvPacket.header.code != Code.HEARTBEAT && recvPacket.header.code != Code.HEARTBEAT_SUCCESS && recvPacket.header.code != ushort.MaxValue-1)
             {
                 Console.WriteLine("\n[Client] {0}:{1}", remoteHost, remotePort);
                 Console.WriteLine("==RECEIVED: \n" + PacketDebug(recvPacket));
             }
 
-            if (!HasInitialized())
+            bool isBackend = false;
+            try
+            {
+                if (client.So.RemoteEndPoint.ToString() == backend.RemoteEndPoint.ToString())
+                    isBackend = true;
+            }
+            catch (Exception) { isBackend = false; }
+            
+            if (!isBackend && !HasInitialized())
                 return new Packet(new Header(Code.INITIALIZE_FAIL, 0), null);
 
             switch (recvPacket.header.code)
@@ -728,8 +739,14 @@ namespace JunhyehokServer
 
                 //-----------SIGNOUT---------
                 case Code.SIGNOUT:
-                    RemoveClient(client);
+                    RemoveClient(client, true);
                     responsePacket = NoResponsePacket;
+                    break;
+
+                case Code.UPDATE_USER:
+                    break;
+
+                case Code.DELETE_USER:
                     break;
 
                 default:
@@ -764,9 +781,13 @@ namespace JunhyehokServer
         }
         private bool HasInitialized()
         {
-            if (client.So.LocalEndPoint.ToString() == backend.LocalEndPoint.ToString() || recvPacket.header.code == Code.INITIALIZE)
-                return true;
-            return !(client.UserId == -1 || client.Cookie == null);
+            try
+            {
+                if (recvPacket.header.code == Code.INITIALIZE)
+                    return true;
+                return !(client.UserId == -1 || client.Cookie == null);
+            }
+            catch (Exception) { Console.WriteLine("ERROR: HasInitialized - Socket lost"); return false; }
         }
         private static void UpdateMMF()
         {
@@ -779,7 +800,7 @@ namespace JunhyehokServer
 
             Console.WriteLine("[MEMORYMAPPED FILE] Writing to MMF: ({0})...", mmfName);
 
-            Mutex mutex = Mutex.OpenExisting("MMF_IPC");
+            Mutex mutex = Mutex.OpenExisting("MMF_IPC" + mmfName);
             mutex.WaitOne();
 
             // Create Accessor to MMF

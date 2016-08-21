@@ -60,9 +60,10 @@ namespace JunhyehokServer
         
         public async void StartSequence()
         {
+            Packet recvRequest;
             while (true)
             {
-                Packet recvRequest = await SocketRecvAsync();
+                recvRequest = await SocketRecvAsync();
 
                 if (ushort.MaxValue == recvRequest.header.code)
                     break;
@@ -83,6 +84,7 @@ namespace JunhyehokServer
                     }
                 }
 
+                // if Initialize_fail, it means the user came with a bad cookie
                 if (respPacket.header.code == Code.INITIALIZE_FAIL)
                     break; //close socket connection
 
@@ -93,7 +95,7 @@ namespace JunhyehokServer
                     break;
                 }
             }
-            CloseConnection();
+            CloseConnection(true);
         }
         
         private async Task<Packet> SocketRecvAsync()
@@ -119,21 +121,30 @@ namespace JunhyehokServer
             return recvRequest;
         }
         
-        public void CloseConnection()
+        public void CloseConnection(bool signout)
         {
             //=================Signout/Close Connection/Exit Thread==================
-            Signout();
+            bool isBackend = false;
+            try
+            {
+                if (So.RemoteEndPoint.ToString() == ReceiveHandle.backend.RemoteEndPoint.ToString())
+                    isBackend = true;
+            }
+            catch (Exception) { isBackend = false; }
+            
+            if (!isBackend)
+                Signout(signout);
             Console.WriteLine("Closing connection with {0}:{1}", remoteHost, remotePort);
             so.Shutdown(SocketShutdown.Both);
             so.Close();
             Console.WriteLine("Connection closed\n");
         }
 
-        private void Signout()
+        private void Signout(bool signout)
         {
             if (status == State.Lobby || status == State.Room)
             {
-                ReceiveHandle.RemoveClient(this);
+                ReceiveHandle.RemoveClient(this, signout);
                 this.roomId = 0;
             }
             this.status = State.Offline;
@@ -146,8 +157,8 @@ namespace JunhyehokServer
             {
                 try
                 {
-                    so.ReceiveTimeout = 3000000;
-                    //so.ReceiveTimeout = 120000;
+                    //so.ReceiveTimeout = 3000000;
+                    so.ReceiveTimeout = 20000;
                     bytecount = await Task.Run(() => so.Receive(bytes));
 
                     //assumes that the line above(so.Receive) will throw exception 
@@ -167,13 +178,16 @@ namespace JunhyehokServer
                         if (bytes.Length != 0)
                         {
                             heartbeatMiss++;
-                            if (heartbeatMiss == 2)
+                            if (heartbeatMiss == 3)
+                            {
+                                Console.WriteLine("[HEARBEAT MISSED] {0}:{1}", remoteHost, remotePort);
                                 return null;
+                            }
 
                             //puts -1 bytes into 1st and 2nd bytes (CODE)
                             byte[] noRespBytes = BitConverter.GetBytes((ushort)ushort.MaxValue-1);
-                            bytes[0] = noRespBytes[0];
-                            bytes[1] = noRespBytes[1];
+                            bytes[FieldIndex.CODE] = noRespBytes[0];
+                            bytes[FieldIndex.CODE + 1] = noRespBytes[1];
                         }
                     }
                 }
@@ -202,6 +216,7 @@ namespace JunhyehokServer
                 return !(so.Poll(1, SelectMode.SelectRead) && so.Available == 0);
             }
             catch (SocketException) { return false; }
+            catch (Exception) { return false; }
         }
     }
 }
