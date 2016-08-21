@@ -93,6 +93,7 @@ namespace JunhyehokServer
                 }
                 else if (respPacket.header.code == Code.DELETE_USER_SUCCESS || respPacket.header.code == Code.SIGNOUT)
                 {
+                    //consider removing the RemoveClient call in the SIGNOUT switch/case
                     doSignout = false;
                     break;
                 }

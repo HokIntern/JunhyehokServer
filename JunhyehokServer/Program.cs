@@ -9,6 +9,8 @@ using Junhaehok;
 using static Junhaehok.HhhHelper;
 using System.Web;
 using System.Net.WebSockets;
+using System.IO.MemoryMappedFiles;
+using System.Threading;
 
 namespace JunhyehokServer
 {
@@ -59,28 +61,51 @@ namespace JunhyehokServer
             try { backendInfo = System.IO.File.ReadAllText("backend.conf"); }
             catch (Exception e) { Console.WriteLine("\n" + e.Message); Environment.Exit(0); }
             Socket backendSocket = Connect(backendInfo);
-            //Socket backendSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-
             ClientHandle backend = new ClientHandle(backendSocket);
-
-            //=================ADVERTISE IP:PORT TO BACKEND======================
-            FBAdvertiseRequest fbAdvertiseRequest;
-            char[] ip = ((IPEndPoint)backend.So.LocalEndPoint).Address.ToString().ToCharArray();
-            char[] ipBuffer = new char[15];
-            Array.Copy(ip, ipBuffer, ip.Length);
-            fbAdvertiseRequest.ip = ipBuffer;
-            fbAdvertiseRequest.port = int.Parse(clientPort);
-            byte[] advertiseBytes = Serializer.StructureToByte(fbAdvertiseRequest);
-            backend.So.SendBytes(new Packet(new Header(Code.ADVERTISE, (ushort)advertiseBytes.Length), advertiseBytes));
-            //FIRE OFF TASK
             backend.StartSequence();
 
             //======================INITIALIZE==================================
             Console.WriteLine("Initializing lobby and rooms...");
             ReceiveHandle recvHandle = new ReceiveHandle(backendSocket, mmfName);
 
+            //======================UPDATE MMF==================================
+            Console.WriteLine("Updating Memory Mapped File...");
+            ReceiveHandle.UpdateMMF();
+
             //===================CLIENT SOCKET ACCEPT===========================
             Console.WriteLine("Accepting clients...");
+            StartAcceptAsync(echoc);
+
+            while (true)
+            {
+                using (var mmf = MemoryMappedFile.OpenExisting(mmfName + "IPX"))
+                {
+                    byte[] buffer = new byte[1];
+                    // Create accessor to MMF
+                    using (var accessor = mmf.CreateViewAccessor(0, buffer.Length))
+                    {
+                        // Wait for the lock
+                        Mutex mutex = Mutex.OpenExisting("MMF_IPX" + mmfName);
+                        mutex.WaitOne();
+
+                        // Read from MMF
+                        accessor.ReadArray<byte>(0, buffer, 0, buffer.Length);
+                        if (buffer[0] == 0)
+                        {
+                            mutex.ReleaseMutex();
+                            break;
+                        }
+                        mutex.ReleaseMutex();
+                    }
+                }
+            }
+            ReceiveHandle.UpdateMMF(false);
+            backend.So.Shutdown(SocketShutdown.Both);
+            backend.So.Close();
+            Environment.Exit(0);
+        }
+        public static async void StartAcceptAsync(TcpServer server)
+        {
             while (true)
             {
                 /*
@@ -90,10 +115,21 @@ namespace JunhyehokServer
                     var ws = new WebSocket(wstesthost);
                 }
                 */
-                Socket s = echoc.so.Accept();
+                Socket s = await Task.Run(() => server.so.Accept());
                 ClientHandle client = new ClientHandle(s);
                 client.StartSequence();
             }
+        }
+        public static void AdvertiseToBackend(ClientHandle backend, string clientPort)
+        {
+            FBAdvertiseRequest fbAdvertiseRequest;
+            char[] ip = ((IPEndPoint)backend.So.LocalEndPoint).Address.ToString().ToCharArray();
+            char[] ipBuffer = new char[15];
+            Array.Copy(ip, ipBuffer, ip.Length);
+            fbAdvertiseRequest.ip = ipBuffer;
+            fbAdvertiseRequest.port = int.Parse(clientPort);
+            byte[] advertiseBytes = Serializer.StructureToByte(fbAdvertiseRequest);
+            backend.So.SendBytes(new Packet(new Header(Code.ADVERTISE, (ushort)advertiseBytes.Length), advertiseBytes));
         }
         public static Socket Connect(string info)
         {

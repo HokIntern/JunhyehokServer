@@ -34,11 +34,7 @@ namespace JunhyehokServer
         {
             backend = backendSocket;
             mmfName = mmfNombre;
-            mmf = MemoryMappedFile.CreateOrOpen(mmfName, Marshal.SizeOf(typeof(AAServerInfoResponse)));
-            // Lock
-            bool mutexCreated;
-            Mutex mutex = new Mutex(true, "MMF_IPC" + mmfName, out mutexCreated);
-            mutex.ReleaseMutex();
+            mmf = MemoryMappedFile.OpenExisting(mmfName);
             awaitingInit = new Dictionary<string, long>();
             clients = new Dictionary<long, ClientHandle>();
             rooms = new Dictionary<int, Room>();
@@ -790,11 +786,12 @@ namespace JunhyehokServer
             }
             catch (Exception) { Console.WriteLine("ERROR: HasInitialized - Socket lost"); return false; }
         }
-        private static void UpdateMMF()
+        public static void UpdateMMF(bool alive=true)
         {
             int clientCount = clients.Count;
             int roomCount = rooms.Count;
             AAServerInfoResponse aaServerInfoResp;
+            aaServerInfoResp.alive = alive;
             aaServerInfoResp.userCount = clientCount;
             aaServerInfoResp.roomCount = roomCount;
             byte[] aaServerInfoRespBytes = Serializer.StructureToByte(aaServerInfoResp);
