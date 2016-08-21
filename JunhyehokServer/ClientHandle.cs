@@ -61,6 +61,7 @@ namespace JunhyehokServer
         public async void StartSequence()
         {
             Packet recvRequest;
+            bool doSignout = true;
             while (true)
             {
                 recvRequest = await SocketRecvAsync();
@@ -85,8 +86,16 @@ namespace JunhyehokServer
                 }
 
                 // if Initialize_fail, it means the user came with a bad cookie
-                if (respPacket.header.code == Code.INITIALIZE_FAIL) //TODO: check if respPacket code is Delete User Success and call CloseConnection(false) -> no signout
+                if (respPacket.header.code == Code.INITIALIZE_FAIL)
+                {
+                    doSignout = true;
                     break; //close socket connection
+                }
+                else if (respPacket.header.code == Code.DELETE_USER_SUCCESS || respPacket.header.code == Code.SIGNOUT)
+                {
+                    doSignout = false;
+                    break;
+                }
 
                 //=======================Check Connection=======================
                 if (!isConnected())
@@ -95,7 +104,7 @@ namespace JunhyehokServer
                     break;
                 }
             }
-            CloseConnection(true);
+            CloseConnection(doSignout);
         }
         
         private async Task<Packet> SocketRecvAsync()

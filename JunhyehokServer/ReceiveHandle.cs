@@ -725,7 +725,7 @@ namespace JunhyehokServer
                 //-----------SIGNOUT---------
                 case Code.SIGNOUT:
                     RemoveClient(client, true);
-                    responsePacket = NoResponsePacket;
+                    responsePacket = new Packet(new Header(Code.SIGNOUT, 0), null);
                     break;
 
                 //---------UPDATE USER-------
