@@ -18,12 +18,13 @@ namespace JunhyehokServer
         {
             string host = null;     //Default
             string clientPort = "30000";  //Default
+            string mmfName = "JunhyehokMmf"; //Default
             TcpServer echoc;
 
             //=========================GET ARGS=================================
             if (args.Length == 0)
             {
-                Console.WriteLine("Format: JunhyehokServer -cp [client port] -sp [server port]");
+                Console.WriteLine("Format: JunhyehokServer -cp [client port] -mmf [MMF name]");
                 Environment.Exit(0);
             }
 
@@ -32,14 +33,17 @@ namespace JunhyehokServer
                 switch (args[i])
                 {
                     case "--help":
-                        Console.WriteLine("Format: JunhyehokServer -cp [client port] -sp [server port]");
+                        Console.WriteLine("Format: JunhyehokServer -cp [client port] -mmf [MMF name]");
                         Environment.Exit(0);
+                        break;
+                    case "-mmf":
+                        mmfName = args[++i];
                         break;
                     case "-cp":
                         clientPort = args[++i];
                         break;
                     default:
-                        Console.Error.WriteLine("ERROR: incorrect inputs \nFormat: IrccServer -cp [client port] -sp [server port]");
+                        Console.Error.WriteLine("ERROR: incorrect inputs \nFormat: JunhyehokServer -cp [client port] -mmf [MMF name]");
                         Environment.Exit(0);
                         break;
                 }
@@ -59,7 +63,7 @@ namespace JunhyehokServer
 
             ClientHandle backend = new ClientHandle(backendSocket);
 
-            //send ADVERTISE to backend
+            //=================ADVERTISE IP:PORT TO BACKEND======================
             FBAdvertiseRequest fbAdvertiseRequest;
             char[] ip = ((IPEndPoint)backend.So.LocalEndPoint).Address.ToString().ToCharArray();
             char[] ipBuffer = new char[15];
@@ -73,7 +77,7 @@ namespace JunhyehokServer
 
             //======================INITIALIZE==================================
             Console.WriteLine("Initializing lobby and rooms...");
-            ReceiveHandle recvHandle = new ReceiveHandle(backendSocket);
+            ReceiveHandle recvHandle = new ReceiveHandle(backendSocket, mmfName);
 
             //===================CLIENT SOCKET ACCEPT===========================
             Console.WriteLine("Accepting clients...");

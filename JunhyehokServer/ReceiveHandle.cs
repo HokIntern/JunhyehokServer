@@ -8,25 +8,37 @@ using System.Threading.Tasks;
 using Junhaehok;
 using static Junhaehok.Packet;
 using static Junhaehok.HhhHelper;
+using System.IO.MemoryMappedFiles;
+using System.Runtime.InteropServices;
+using System.Threading;
+using System.IO;
 
 namespace JunhyehokServer
 {
     class ReceiveHandle
     {
-        //TODO: ALWAYS CHECK IF CONNECTION IN AWAITINGINIT
         ClientHandle client;
         Packet recvPacket;
+        bool updateMMF;
 
         static Socket backend;
+        static string mmfName;
         static Dictionary<string, long> awaitingInit;
         static Dictionary<long, ClientHandle> clients;
         static Dictionary<int, Room> rooms;
+        static MemoryMappedFile mmf;
         readonly Header NoResponseHeader = new Header(ushort.MaxValue, 0);
         readonly Packet NoResponsePacket = new Packet(new Header(ushort.MaxValue, 0), null);
 
-        public ReceiveHandle(Socket backendSocket)
+        public ReceiveHandle(Socket backendSocket, string mmfNombre)
         {
             backend = backendSocket;
+            mmfName = mmfNombre;
+            mmf = MemoryMappedFile.CreateOrOpen(mmfName, Marshal.SizeOf(typeof(AAServerInfoResponse)));
+            // Lock
+            bool mutexCreated;
+            Mutex mutex = new Mutex(true, "MMF_IPC", out mutexCreated);
+            mutex.ReleaseMutex();
             awaitingInit = new Dictionary<string, long>();
             clients = new Dictionary<long, ClientHandle>();
             rooms = new Dictionary<int, Room>();
@@ -36,6 +48,7 @@ namespace JunhyehokServer
         {
             this.client = client;
             this.recvPacket = recvPacket;
+            updateMMF = false;
         }
 
         public static void RemoveClient(ClientHandle client)
@@ -67,7 +80,28 @@ namespace JunhyehokServer
                         if (!rooms.TryGetValue(client.RoomId, out requestedRoom))
                             Console.WriteLine("ERROR: REMOVECLIENT - room doesn't exist {0}", client.RoomId);
                         else
+                        {
                             requestedRoom.RemoveClient(client);
+
+                            //destroy room is no one is in the room
+                            if (requestedRoom.Clients.Count == 0)
+                            {
+                                rooms.Remove(requestedRoom.RoomId);
+
+                                //send destroy room to backend
+                                FBRoomDestroyRequest fbRoomDestroyReq;
+                                fbRoomDestroyReq.roomNum = requestedRoom.RoomId;
+                                byte[] fbRoomDestroyReqBytes = Serializer.StructureToByte(fbRoomDestroyReq);
+                                requestHeader = new Header(Code.DESTROY_ROOM, (ushort)fbRoomDestroyReqBytes.Length, client.UserId);
+                                requestPacket = new Packet(requestHeader, fbRoomDestroyReqBytes);
+                                success = backend.SendBytes(requestPacket);
+                                if (!success)
+                                {
+                                    Console.WriteLine("ERR: RemoveClient send to backend failed");
+                                    return;
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -86,6 +120,7 @@ namespace JunhyehokServer
 
                 lock (clients)
                     clients.Remove(client.UserId);
+                UpdateMMF();
             }
             else
                 Console.WriteLine("ERROR: REMOVECLIENT - you messed up");
@@ -132,10 +167,12 @@ namespace JunhyehokServer
             }
             if (authorized)
             {
+                client.Status = ClientHandle.State.Lobby;
                 client.UserId = uid;
                 client.CookieChar = cookieChar;
                 lock (clients)
                     clients.Add(client.UserId, client);
+                updateMMF = true;
 
                 returnData = null;
                 returnHeader = new Header(Code.INITIALIZE_SUCCESS, 0);
@@ -208,8 +245,8 @@ namespace JunhyehokServer
             }
             else
                 response = NoResponsePacket;
-            
-            //joinsuccess -> remove from lobby and add to room (no response to backend, no response to client)
+
+            updateMMF = true;
             return response;
         }
         //=======================================CREATE_FAIL 505=================================================
@@ -255,7 +292,8 @@ namespace JunhyehokServer
                     client.RoomId = roomId;
                 }
             }
-            
+
+            updateMMF = true;
             return NoResponsePacket;
         }
         //=======================================JOIN_SUCCESS 602===============================================
@@ -369,6 +407,7 @@ namespace JunhyehokServer
 
                 lock (clients)
                     clients.Remove(clientToSend.UserId);
+                updateMMF = true;
                 clientToSend.CloseConnection();
 
                 //send nothing back to Backend
@@ -419,12 +458,27 @@ namespace JunhyehokServer
                         client.RoomId = 0;
                         client.Status = ClientHandle.State.Lobby;
 
+                        //destroy room is no one is in the room
+                        if (requestedRoom.Clients.Count == 0)
+                        {
+                            rooms.Remove(requestedRoom.RoomId);
+
+                            //send destroy room to backend
+                            FBRoomDestroyRequest fbRoomDestroyReq;
+                            fbRoomDestroyReq.roomNum = requestedRoom.RoomId;
+                            byte[] fbRoomDestroyReqBytes = Serializer.StructureToByte(fbRoomDestroyReq);
+                            backendReqHeader = new Header(Code.DESTROY_ROOM, (ushort)fbRoomDestroyReqBytes.Length, client.UserId);
+                            backendReqPacket = new Packet(backendReqHeader, fbRoomDestroyReqBytes);
+                            backend.SendBytes(backendReqPacket);
+                        }
+
                         returnHeader = NoResponseHeader;
                         returnData = null;
                     }
                 }
             }
 
+            updateMMF = true;
             response = new Packet(returnHeader, returnData);
             return response;
         }
@@ -684,6 +738,10 @@ namespace JunhyehokServer
                     break;
             }
 
+            //===================Update MMF for IPC with agent==================
+            if (updateMMF)
+                UpdateMMF();
+
             //===============Build Response/Set Surrogate/Return================
             if (debug && responsePacket.header.code != ushort.MaxValue && responsePacket.header.code != Code.HEARTBEAT && responsePacket.header.code != Code.HEARTBEAT_SUCCESS)
             {
@@ -709,6 +767,28 @@ namespace JunhyehokServer
             if (client.So.LocalEndPoint.ToString() == backend.LocalEndPoint.ToString() || recvPacket.header.code == Code.INITIALIZE)
                 return true;
             return !(client.UserId == -1 || client.Cookie == null);
+        }
+        private static void UpdateMMF()
+        {
+            int clientCount = clients.Count;
+            int roomCount = rooms.Count;
+            AAServerInfoResponse aaServerInfoResp;
+            aaServerInfoResp.userCount = clientCount;
+            aaServerInfoResp.roomCount = roomCount;
+            byte[] aaServerInfoRespBytes = Serializer.StructureToByte(aaServerInfoResp);
+
+            Console.WriteLine("[MEMORYMAPPED FILE] Writing to MMF: ({0})...", mmfName);
+
+            Mutex mutex = Mutex.OpenExisting("MMF_IPC");
+            mutex.WaitOne();
+
+            // Create Accessor to MMF
+            using (var accessor = mmf.CreateViewAccessor(0, aaServerInfoRespBytes.Length))
+            {
+                // Write to MMF
+                accessor.WriteArray<byte>(0, aaServerInfoRespBytes, 0, aaServerInfoRespBytes.Length);
+            }
+            mutex.ReleaseMutex();
         }
     }
 }
