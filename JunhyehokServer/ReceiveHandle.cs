@@ -185,12 +185,16 @@ namespace JunhyehokServer
                 Header backendReqHeader = new Header(Code.CONNECTION_PASS_SUCCESS, 0, client.UserId);
                 Packet backendReqPacket = new Packet(backendReqHeader, null);
                 backend.SendBytes(backendReqPacket);
+
+                client.initFailCounter = 0;
             }
             else
             {
                 returnData = null;
                 returnHeader = new Header(Code.INITIALIZE_FAIL, 0);
                 response = new Packet(returnHeader, returnData);
+
+                client.initFailCounter++;
             }
 
             return response;
