@@ -99,6 +99,7 @@ namespace JunhyehokServer
                             }
                         }
                     }
+                    client.Status = ClientHandle.State.Lobby;
                 }
 
                 bool clientExists = false;
@@ -123,6 +124,7 @@ namespace JunhyehokServer
                 lock (clients)
                     clients.Remove(client.UserId);
                 UpdateMMF();
+                client.Status = ClientHandle.State.Offline;
             }
             else
                 Console.WriteLine("ERROR: REMOVECLIENT - you messed up");
@@ -721,7 +723,7 @@ namespace JunhyehokServer
                 //-----------SIGNOUT---------
                 case Code.SIGNOUT:
                     RemoveClient(client, true);
-                    responsePacket = new Packet(new Header(Code.SIGNOUT, 0), null);
+                    responsePacket = new Packet(new Header(Code.SIGNOUT_SUCCESS, 0), null);
                     break;
 
                 //---------UPDATE USER-------
