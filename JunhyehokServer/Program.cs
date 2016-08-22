@@ -62,6 +62,7 @@ namespace JunhyehokServer
             catch (Exception e) { Console.WriteLine("\n" + e.Message); Environment.Exit(0); }
             Socket backendSocket = Connect(backendInfo);
             ClientHandle backend = new ClientHandle(backendSocket);
+            AdvertiseToBackend(backend, clientPort);
             backend.StartSequence();
 
             //======================INITIALIZE==================================
