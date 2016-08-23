@@ -51,9 +51,16 @@ namespace JunhyehokServer
                 }
             }
 
-            //======================SOCKET BIND/LISTEN==========================
+            //======================SOCKET BIND/LISTEN============================
             /* if only given port, host is ANY */
             echoc = new TcpServer(host, clientPort);
+
+            //=======================AGENT CONNECT================================
+            Console.WriteLine("Connecting to Agent...");
+            string agentInfo = "127.0.0.1:40000";
+            Socket agentSocket = Connect(agentInfo);
+            ClientHandle agent = new ClientHandle(agentSocket);
+            agent.StartSequence();
 
             //======================BACKEND CONNECT===============================
             Console.WriteLine("Connecting to Backend...");
@@ -65,18 +72,22 @@ namespace JunhyehokServer
             AdvertiseToBackend(backend, clientPort);
             backend.StartSequence();
 
-            //======================INITIALIZE==================================
+            //======================INITIALIZE/UPDATE MMF==================================
             Console.WriteLine("Initializing lobby and rooms...");
-            ReceiveHandle recvHandle = new ReceiveHandle(backendSocket, mmfName);
-
-            //======================UPDATE MMF==================================
             Console.WriteLine("Updating Memory Mapped File...");
-            ReceiveHandle.UpdateMMF();
+            ReceiveHandle recvHandle = new ReceiveHandle(backendSocket, mmfName);
 
             //===================CLIENT SOCKET ACCEPT===========================
             Console.WriteLine("Accepting clients...");
-            StartAcceptAsync(echoc);
+            while (true)
+            {
+                Socket s = echoc.so.Accept();
+                ClientHandle client = new ClientHandle(s);
+                client.StartSequence();
+            }
 
+            /*
+            StartAcceptAsync(echoc)
             while (true)
             {
                 using (var mmf = MemoryMappedFile.OpenExisting(mmfName + "IPX"))
@@ -104,18 +115,12 @@ namespace JunhyehokServer
             backend.So.Shutdown(SocketShutdown.Both);
             backend.So.Close();
             Environment.Exit(0);
+            */
         }
         public static async void StartAcceptAsync(TcpServer server)
         {
             while (true)
             {
-                /*
-                if (clientPort == "80")
-                {
-                    var wstesthost = "ws://example.microsoft.com";
-                    var ws = new WebSocket(wstesthost);
-                }
-                */
                 Socket s = await Task.Run(() => server.so.Accept());
                 ClientHandle client = new ClientHandle(s);
                 client.StartSequence();

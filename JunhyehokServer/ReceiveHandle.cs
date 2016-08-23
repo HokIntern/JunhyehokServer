@@ -38,6 +38,8 @@ namespace JunhyehokServer
             awaitingInit = new Dictionary<string, long>();
             clients = new Dictionary<long, ClientHandle>();
             rooms = new Dictionary<int, Room>();
+
+            UpdateMMF(false);
         }
 
         public ReceiveHandle(ClientHandle client, Packet recvPacket)
@@ -606,6 +608,21 @@ namespace JunhyehokServer
             return ForwardPacketWithUserIdUpdated(recvPacket);
         }
 
+        //=========================================SERVER_STOP 1270=============================================
+        //=========================================SERVER_STOP 1270=============================================
+        //=========================================SERVER_STOP 1270=============================================
+        public Packet ResponseServerStop(Packet recvPacket)
+        {
+            if (IsAgent())
+            {
+                UpdateMMF(false);
+                backend.Shutdown(SocketShutdown.Both);
+                backend.Close();
+                Environment.Exit(0);
+            }
+            return NoResponsePacket;
+        }
+
         //=============================================SWITCH CASE============================================
         //=============================================SWITCH CASE============================================
         //=============================================SWITCH CASE============================================
@@ -752,6 +769,11 @@ namespace JunhyehokServer
                     responsePacket = ResponseDeleteUserFail(recvPacket);
                     break;
 
+                //--------SERVER STOP--------
+                case Code.SERVER_STOP:
+                    responsePacket = ResponseServerStop(recvPacket);
+                    break;
+
                 default:
                     if (debug)
                         Console.WriteLine("Unknown code: {0}\n", recvPacket.header.code);
@@ -798,8 +820,8 @@ namespace JunhyehokServer
             int roomCount = rooms.Count;
             AAServerInfoResponse aaServerInfoResp;
             aaServerInfoResp.alive = alive;
-            aaServerInfoResp.userCount = clientCount;
-            aaServerInfoResp.roomCount = roomCount;
+            aaServerInfoResp.userCount = alive == true ? clientCount : 0;
+            aaServerInfoResp.roomCount = alive == true ? roomCount : 0;
             byte[] aaServerInfoRespBytes = Serializer.StructureToByte(aaServerInfoResp);
 
             Console.WriteLine("[MEMORYMAPPED FILE] Writing to MMF: ({0})...", mmfName);
@@ -836,6 +858,16 @@ namespace JunhyehokServer
                 response = NoResponsePacket;
 
             return response;
+        }
+        private bool IsAgent()
+        {
+            try
+            {
+                if (((IPEndPoint)client.So.RemoteEndPoint).Address.ToString() == "127.0.0.1" && ((IPEndPoint)client.So.RemoteEndPoint).Port.ToString() == "40000") //must not be a ClientHandle. Agents are backendHandles
+                    return true;
+                return false;
+            }
+            catch (Exception) { return false; }
         }
     }
 }
